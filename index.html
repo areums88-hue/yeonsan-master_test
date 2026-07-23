@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>연산마스터</title>
+  <!-- React 및 필수 도구 불러오기 -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
+    
+    /* 폰트가 확실하게 적용되도록 !important 추가 */
+    .font-jua { font-family: 'Jua', sans-serif !important; }
+    
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-8px) rotate(-2deg); }
+      40% { transform: translateX(8px) rotate(2deg); }
+      60% { transform: translateX(-8px) rotate(-2deg); }
+      80% { transform: translateX(8px) rotate(2deg); }
+    }
+    .animate-shake { animation: shake 0.4s ease-in-out; }
+    
+    @keyframes bounce-scale {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .animate-bounce-scale { animation: bounce-scale 0.4s ease-in-out; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-300 via-purple-300 to-pink-300 min-h-[100dvh] font-sans">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    const generateProblemForLevel = (level) => {
+      let aMax = Math.min(9, 1 + level * 2); 
+      let a = Math.floor(Math.random() * aMax) + 1;
+      let b, c;
+      do {
+        b = Math.floor(Math.random() * 9) + 1;
+        c = Math.floor(Math.random() * 9) + 1;
+      } while (b + c < 10);
+      
+      return {
+        num1: a * 10 + b,
+        num2: c,
+        answer: (a * 10 + b) + c
+      };
+    };
+
+    function App() {
+      const [score, setScore] = useState(0);
+      const [combo, setCombo] = useState(0);
+      const [problemCount, setProblemCount] = useState(0);
+      const [problem, setProblem] = useState(() => generateProblemForLevel(1));
+      
+      const digitsCount = problem.answer.toString().length;
+      
+      const [inputs, setInputs] = useState(Array(digitsCount).fill(''));
+      const [activeBoxIndex, setActiveBoxIndex] = useState(digitsCount - 1);
+      const [feedback, setFeedback] = useState(null);
+      const [carries, setCarries] = useState({});
+      const [speedBonusText, setSpeedBonusText] = useState(false);
+      
+      const [gameState, setGameState] = useState('playing'); 
+      const [nickname, setNickname] = useState('');
+      
+      const [leaderboard, setLeaderboard] = useState(() => {
+        const savedScores = localStorage.getItem('mathGameLeaderboard');
+        return savedScores ? JSON.parse(savedScores) : [];
+      });
+      
+      const startTimeRef = useRef(Date.now());
+      const level = Math.floor(score / 50) + 1;
+
+      useEffect(() => {
+        const count = problem.answer.toString().length;
+        setInputs(Array(count).fill(''));
+        setActiveBoxIndex(count - 1);
+        setFeedback(null);
+        setCarries({});
+        setSpeedBonusText(false);
+        startTimeRef.current = Date.now();
+      }, [problem]);
+
+      const toggleCarry = (idx) => {
+        if (feedback !== null) return;
+        setCarries(prev => ({ ...prev, [idx]: !prev[idx] }));
+      };
+
+      const checkAnswer = useCallback(() => {
+        if (feedback !== null || gameState !== 'playing') return;
+        const currentAnswer = parseInt(inputs.join(''));
+        if (isNaN(currentAnswer)) return;
+        
+        if (currentAnswer === problem.answer) {
+          setFeedback('correct');
+          
+          const timeTaken = (Date.now() - startTimeRef.current) / 1000;
+          const isSpeedy = timeTaken <= 5; 
+          if (isSpeedy) setSpeedBonusText(true);
+          
+          const speedBonus = isSpeedy ? 5 : 0; 
+          const nextScore = score + 10 + (combo * 2) + speedBonus;
+          const nextCount = problemCount + 1;
+          
+          setScore(nextScore);
+          setCombo(c => c + 1);
+          setProblemCount(nextCount);
+          
+          setTimeout(() => {
+            if (nextCount > 0 && nextCount % 5 === 0) { // ✅ 20에서 5로 변경
+              setGameState('paused');
+            } else {
+              setProblem(generateProblemForLevel(Math.floor(nextScore / 50) + 1));
+            }
+          }, 1200);
+        } else {
+          setFeedback('wrong');
+          setCombo(0); 
+          setTimeout(() => {
+            setInputs(Array(digitsCount).fill(''));
+            setActiveBoxIndex(digitsCount - 1);
+            setFeedback(null);
+            startTimeRef.current = Date.now();
+          }, 1000);
+        }
+      }, [inputs, problem.answer, score, combo, feedback, digitsCount, problemCount, gameState]);
+
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (feedback !== null || gameState !== 'playing') return;
+          if (e.key >= '0' && e.key <= '9') {
+            setInputs(prev => { const next = [...prev]; next[activeBoxIndex] = e.key; return next; });
+            if (activeBoxIndex > 0) setActiveBoxIndex(prev => prev - 1);
+          } else if (e.key === 'Backspace') {
+            setInputs(prev => { const next = [...prev]; if (next[activeBoxIndex] !== '') { next[activeBoxIndex] = ''; return next; } return prev; });
+            if (inputs[activeBoxIndex] === '' && activeBoxIndex < digitsCount - 1) {
+               setInputs(prev => { const next = [...prev]; next[activeBoxIndex + 1] = ''; return next; });
+               setActiveBoxIndex(prev => prev + 1);
+            }
+          } else if (e.key === 'Enter') { checkAnswer(); }
+          else if (e.key === 'ArrowLeft') {
+            if (activeBoxIndex > 0) setActiveBoxIndex(prev => prev - 1);
+          } else if (e.key === 'ArrowRight') {
+            if (activeBoxIndex < digitsCount - 1) setActiveBoxIndex(prev => prev + 1);
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [activeBoxIndex, inputs, feedback, checkAnswer, digitsCount, gameState]);
+
+      if (gameState === 'paused') return (
+        <div className="flex flex-col items-center justify-start pt-16 px-4 pb-24 sm:justify-center sm:p-6 min-h-[100dvh]">
+          <div className="bg-white/95 rounded-[2.5rem] shadow-2xl p-8 text-center max-w-sm w-full">
+            <div className="text-6xl mb-4 text-center">✨</div>
+            <h2 className="text-3xl font-black text-indigo-600 mb-2">참 잘했어요!</h2>
+            <p className="text-gray-600 mb-6 font-bold">{problemCount}문제를 멋지게 풀어냈어요!</p>
+            
+            <div className="bg-indigo-50 p-6 rounded-3xl mb-6 space-y-3">
+              <div className="flex justify-between font-bold text-lg">
+                 <span className="text-gray-600">현재 점수</span>
+                 <span className="text-indigo-600 text-2xl">{score}점</span>
+              </div>
+              <div className="flex justify-between font-bold">
+                 <span className="text-gray-500">최고 콤보</span>
+                 <span className="text-orange-500">{combo} 연속</span>
+              </div>
+              <div className="flex justify-between font-bold">
+                 <span className="text-gray-500">도달 레벨</span>
+                 <span className="text-purple-600">Lv. {level}</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <button onClick={() => { setGameState('playing'); setProblem(generateProblemForLevel(level)); }} className="w-full bg-green-400 hover:bg-green-500 text-white p-4 rounded-2xl font-bold flex items-center justify-center gap-2 text-lg transition-colors">
+                ▶️ 다음 레벨로 계속하기
+              </button>
+              <button onClick={() => setGameState('gameOver')} className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 p-4 rounded-2xl font-bold flex items-center justify-center gap-2 text-lg transition-colors">
+                🚪 그만하고 순위 저장
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+
+      if (gameState === 'gameOver') return (
+        <div className="flex flex-col items-center justify-start pt-16 px-4 pb-24 sm:justify-center sm:p-6 min-h-[100dvh]">
+          <div className="bg-white/95 rounded-[2.5rem] shadow-2xl p-8 text-center max-w-sm w-full">
+            <div className="text-6xl mb-6 text-center">🏆</div>
+            <h2 className="text-2xl font-black text-gray-800 mb-2">기록을 저장할까요?</h2>
+            <p className="text-gray-500 mb-6">최종 점수: <strong className="text-indigo-600 text-xl">{score}점</strong></p>
+            
+            <input 
+              maxLength={8} 
+              value={nickname} 
+              onChange={(e) => setNickname(e.target.value)} 
+              placeholder="닉네임 (예: 홍길동)" 
+              className="w-full p-4 mb-6 text-center text-xl font-bold border-[3px] border-indigo-200 focus:border-indigo-500 outline-none rounded-2xl transition-colors" 
+            />
+            
+            <button 
+              onClick={() => { 
+                const nameToSave = nickname.trim() || '익명';
+                const newScore = { id: Date.now(), name: nameToSave, score }; 
+                const newBoard = [...leaderboard, newScore].sort((a,b)=>b.score-a.score).slice(0,5);
+                setLeaderboard(newBoard); 
+                localStorage.setItem('mathGameLeaderboard', JSON.stringify(newBoard)); 
+                setGameState('leaderboard'); 
+              }} 
+              className="w-full bg-indigo-500 hover:bg-indigo-600 text-white p-4 rounded-2xl font-bold flex items-center justify-center gap-2 text-lg shadow-lg shadow-indigo-200 transition-colors"
+            >
+              💾 명예의 전당에 올리기
+            </button>
+          </div>
+        </div>
+      );
+
+      if (gameState === 'leaderboard') return (
+        <div className="flex flex-col items-center justify-start pt-16 px-4 pb-24 sm:justify-center sm:p-6 min-h-[100dvh]">
+          <div className="bg-white/95 rounded-[2.5rem] shadow-2xl p-8 w-full max-w-sm">
+            <div className="flex items-center justify-center gap-3 mb-8">
+              <span className="text-3xl">🏆</span>
+              <h2 className="text-3xl font-black text-gray-800 font-sans">명예의 전당</h2>
+            </div>
+            
+            <div className="space-y-3 mb-8">
+              {leaderboard.length === 0 && <div className="text-center text-gray-400 py-4">아직 기록이 없어요!</div>}
+              {leaderboard.map((e, i) => (
+                <div key={e.id} className={`flex justify-between items-center p-4 rounded-2xl font-bold ${i === 0 ? 'bg-yellow-100 text-yellow-700 border-2 border-yellow-200' : i === 1 ? 'bg-gray-100 text-gray-700' : i === 2 ? 'bg-orange-50 text-orange-800' : 'bg-white border border-gray-100 text-gray-600'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`w-6 text-center ${i === 0 ? 'text-xl' : ''}`}>{i === 0 ? '👑' : `${i+1}.`}</span>
+                    <span className="text-lg">{e.name}</span>
+                  </div>
+                  <span className="text-xl">{e.score}점</span>
+                </div>
+              ))}
+            </div>
+            
+            <button onClick={() => {
+                setScore(0);
+                setProblemCount(0);
+                setCombo(0);
+                setNickname('');
+                setProblem(generateProblemForLevel(1));
+                setGameState('playing');
+            }} className="w-full bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-2xl font-bold text-lg shadow-lg shadow-blue-200 transition-colors">
+              처음부터 다시 시작하기
+            </button>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="flex flex-col items-center justify-start pt-5 px-4 pb-24 min-h-[100dvh] select-none">
+          <div className="w-full max-w-md">
+            
+            <h1 className="text-4xl md:text-5xl text-white text-center mb-5 font-jua drop-shadow-md flex items-center justify-center gap-2 md:gap-3 tracking-wide" style={{ fontFamily: '"Jua", sans-serif' }}>
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 md:w-12 md:h-12 drop-shadow-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect width="16" height="20" x="4" y="2" rx="2"/>
+                <line x1="8" x2="16" y1="6" y2="6"/>
+                <line x1="16" x2="16" y1="14" y2="18"/>
+                <path d="M16 10h.01"/>
+                <path d="M12 10h.01"/>
+                <path d="M8 10h.01"/>
+                <path d="M12 14h.01"/>
+                <path d="M8 14h.01"/>
+                <path d="M12 18h.01"/>
+                <path d="M8 18h.01"/>
+              </svg>
+              연산마스터!
+            </h1>
+            
+            <div className="bg-white/95 backdrop-blur-md rounded-[2rem] md:rounded-[2.5rem] shadow-2xl p-4 md:p-8 border-4 border-white/40 relative">
+              
+              <div className="absolute -top-3 -right-2 bg-indigo-500 text-white text-xs md:text-sm font-bold px-3 py-1 md:px-4 md:py-1.5 rounded-full shadow-lg">
+                {(problemCount % 5) + 1} / 5 {/* ✅ 20에서 5로 변경 */}
+              </div>
+
+              <div className="flex justify-between items-center mb-3 md:mb-8 bg-gray-50 rounded-xl md:rounded-2xl p-3 md:p-4 shadow-inner border border-gray-100">
+                <div className="flex items-center gap-2 md:gap-3">
+                  <div className="bg-yellow-100 p-1.5 md:p-2 rounded-lg md:rounded-xl text-yellow-600 shadow-sm">
+                    <span className="text-xl md:text-2xl">🏆</span>
+                  </div>
+                  <div>
+                    <div className="text-[10px] md:text-xs text-gray-500 font-bold">점수</div>
+                    <div className="text-lg md:text-xl font-black text-gray-800">{score}</div>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col items-center">
+                  <div className="text-[9px] md:text-[10px] text-indigo-400 font-bold tracking-wider">LEVEL</div>
+                  <div className="flex items-center gap-1 text-xl md:text-2xl font-black text-indigo-600 drop-shadow-sm">
+                    <span className="text-base md:text-xl">🏅</span>{level}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 md:gap-3">
+                  <div className="text-right">
+                    <div className="text-[10px] md:text-xs text-gray-500 font-bold">콤보</div>
+                    <div className={`text-lg md:text-xl font-black transition-colors ${combo > 2 ? 'text-rose-500 animate-pulse' : 'text-orange-500'}`}>
+                      {combo} 연속
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`relative bg-white rounded-2xl md:rounded-3xl p-4 md:p-8 mb-3 md:mb-6 shadow-sm border-2 border-gray-100 flex justify-center items-center transition-all duration-300 ${feedback === 'wrong' ? 'animate-shake border-red-300 bg-red-50' : feedback === 'correct' ? 'animate-bounce-scale border-green-300 bg-green-50' : ''}`}>
+                
+                {feedback === 'correct' && speedBonusText && (
+                  <div className="absolute -top-3 right-2 md:top-3 md:right-4 text-green-500 font-bold flex items-center gap-1 animate-bounce text-xs md:text-sm bg-green-100 px-2 py-1 rounded-lg">
+                    <span className="text-sm">⏱️</span> 스피드 +5
+                  </div>
+                )}
+
+                <div className="grid gap-x-2 gap-y-1 md:gap-y-3 items-center justify-items-center text-4xl md:text-6xl font-black font-jua w-fit mx-auto"
+                     style={{ gridTemplateColumns: `auto repeat(${digitsCount}, min-content)`, fontFamily: '"Jua", sans-serif' }}>
+                  
+                  <div className="col-start-1"></div>
+                  {Array.from({ length: digitsCount }).map((_, i) => (
+                    <div key={`carry-${i}`} className="w-10 md:w-16 flex justify-center items-end pb-1 md:pb-2">
+                      {i < digitsCount - 1 ? (
+                        <button
+                          onClick={() => toggleCarry(i)}
+                          className={`w-7 h-7 md:w-10 md:h-10 rounded-full border-2 md:border-[3px] text-lg md:text-2xl flex items-center justify-center transition-all cursor-pointer select-none font-sans font-bold
+                            ${carries[i] ? 'bg-rose-100 border-rose-400 text-rose-500 scale-110 shadow-sm' : 'bg-transparent border-dashed border-gray-300 text-transparent hover:border-gray-400 hover:bg-gray-50'}`}
+                        >1</button>
+                      ) : null}
+                    </div>
+                  ))}
+
+                  <div className="col-start-1"></div>
+                  {String(problem.num1).padStart(digitsCount, ' ').split('').map((char, i) => (
+                    <div key={`num1-${i}`} className="w-10 md:w-16 text-center text-pink-500 drop-shadow-sm">
+                      {char.trim() ? char : ''}
+                    </div>
+                  ))}
+                  
+                  <div className="col-start-1 text-gray-300 pr-1 md:pr-2 text-3xl md:text-5xl">+</div>
+                  {String(problem.num2).padStart(digitsCount, ' ').split('').map((char, i) => (
+                    <div key={`num2-${i}`} className="w-10 md:w-16 text-center text-indigo-500 drop-shadow-sm">
+                      {char.trim() ? char : ''}
+                    </div>
+                  ))}
+                  
+                  <div className="col-span-full w-full h-1 md:h-1.5 bg-gray-300 rounded-full my-1 md:my-2"></div>
+                  
+                  <div className="col-start-1"></div>
+                  {inputs.map((val, idx) => (
+                    <div 
+                      key={`input-${idx}`}
+                      onClick={() => { if (!feedback) setActiveBoxIndex(idx); }}
+                      className={`w-10 md:w-16 h-12 md:h-[70px] flex items-center justify-center rounded-xl md:rounded-2xl border-b-[4px] md:border-b-[6px] transition-all cursor-pointer text-gray-800 font-sans font-bold text-3xl md:text-5xl
+                        ${feedback === 'correct' ? 'bg-green-100 border-green-400 !text-green-700' : 
+                          feedback === 'wrong' ? 'bg-red-100 border-red-400 !text-red-700' : 
+                          idx === activeBoxIndex ? 'bg-indigo-50 border-indigo-400 ring-2 md:ring-4 ring-indigo-200/50 scale-105' : 
+                          'bg-gray-50 border-gray-200 hover:bg-gray-100'}
+                      `}
+                    >
+                      {val ? <span className="drop-shadow-sm">{val}</span> : <span className="text-gray-300/30 text-2xl md:text-4xl">?</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="h-8 md:h-10 flex justify-center items-center mb-3 md:mb-6 text-center">
+                {feedback === 'correct' && (
+                  <div className="flex items-center gap-1 md:gap-2 text-green-500 font-bold text-lg md:text-xl animate-bounce">
+                    <span className="text-xl md:text-2xl">✨</span><span>정답!</span>
+                    <span className="ml-1 text-xs md:text-sm text-green-600 bg-green-100 px-2 py-0.5 md:py-1 rounded-full shadow-sm">
+                      +{10 + combo * 2 + (speedBonusText ? 5 : 0)}
+                    </span>
+                  </div>
+                )}
+                {feedback === 'wrong' && (
+                  <div className="flex items-center gap-1 md:gap-2 text-rose-500 font-bold text-lg md:text-xl">
+                    <span className="text-xl md:text-2xl">❌</span><span>다시 해보자!</span>
+                  </div>
+                )}
+                {!feedback && (
+                  <div className="text-gray-400 font-medium text-xs md:text-sm">
+                    정답을 입력하세요.
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 md:gap-4">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+                  <button key={num} onClick={() => {
+                    if (feedback !== null) return;
+                    setInputs(prev => { const next = [...prev]; next[activeBoxIndex] = num.toString(); return next; });
+                    if (activeBoxIndex > 0) setActiveBoxIndex(prev => prev - 1);
+                  }} className="h-12 md:h-16 bg-gray-50 text-gray-700 text-xl md:text-3xl font-bold rounded-xl md:rounded-2xl border-b-[3px] md:border-b-[4px] border-gray-200 active:border-b-0 active:translate-y-1 hover:bg-gray-100 transition-all">
+                    {num}
+                  </button>
+                ))}
+                <button onClick={() => {
+                  if (feedback !== null) return;
+                  setInputs(prev => { const next = [...prev]; if (next[activeBoxIndex] !== '') { next[activeBoxIndex] = ''; return next; } return prev; });
+                  if (inputs[activeBoxIndex] === '' && activeBoxIndex < digitsCount - 1) {
+                     setInputs(prev => { const next = [...prev]; next[activeBoxIndex + 1] = ''; return next; });
+                     setActiveBoxIndex(prev => prev + 1);
+                  }
+                }} className="h-12 md:h-16 flex justify-center items-center bg-rose-50 text-rose-500 rounded-xl md:rounded-2xl border-b-[3px] md:border-b-[4px] border-rose-200 active:border-b-0 active:translate-y-1 hover:bg-rose-100 transition-all">
+                  <span className="text-2xl md:text-3xl">⌫</span>
+                </button>
+                <button onClick={() => {
+                  if (feedback !== null) return;
+                  setInputs(prev => { const next = [...prev]; next[activeBoxIndex] = '0'; return next; });
+                  if (activeBoxIndex > 0) setActiveBoxIndex(prev => prev - 1);
+                }} className="h-12 md:h-16 bg-gray-50 text-gray-700 text-xl md:text-3xl font-bold rounded-xl md:rounded-2xl border-b-[3px] md:border-b-[4px] border-gray-200 active:border-b-0 active:translate-y-1 hover:bg-gray-100 transition-all">
+                  0
+                </button>
+                <button onClick={checkAnswer} className="h-12 md:h-16 flex justify-center items-center bg-green-400 text-white font-black text-lg md:text-2xl rounded-xl md:rounded-2xl border-b-[3px] md:border-b-[4px] border-green-600 active:border-b-0 active:translate-y-1 hover:bg-green-500 transition-all">
+                  확인
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
